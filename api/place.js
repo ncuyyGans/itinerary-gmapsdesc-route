@@ -162,7 +162,7 @@ export default async function handler(req, res) {
     try {
       const ll = hasLL ? `&ll=${la},${ln}` : "";
       const search = await fsq(
-        `/search?query=${encodeURIComponent(name || "tempat")}${ll}&limit=5&fields=fsq_place_id,name,geocodes,location,distance,categories`,
+        `/search?query=${encodeURIComponent(name || "tempat")}${ll}&limit=5`,
         key
       );
       const candidates = search.results || [];
@@ -171,13 +171,13 @@ export default async function handler(req, res) {
         const id = best.fsq_place_id || best.fsq_id;
         const [detail, tipsRaw] = await Promise.all([
           fsq(
-            `/${id}?fields=fsq_place_id,name,geocodes,location,categories,rating,hours,website,tel,price,stats,description`,
+            `/${id}`,
             key
           ).catch(() => null),
           fsq(`/${id}/tips?limit=30&fields=text`, key).catch(() => []),
         ]);
         const d = detail || best;
-        const geo = d.geocodes?.main || {};
+        const geo = { latitude: d.latitude ?? d.geocodes?.main?.latitude, longitude: d.longitude ?? d.geocodes?.main?.longitude };
         result.name = d.name || result.name;
         result.lat = geo.latitude ?? result.lat;
         result.lng = geo.longitude ?? result.lng;
