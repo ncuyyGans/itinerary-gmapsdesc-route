@@ -97,6 +97,115 @@ function fmtDur(min) {
   return h ? `${h} jam ${m} mnt` : `${m} mnt`;
 }
 
+async function overpassPois(query, attempts) {
+  const MIRRORS = [
+    "https://overpass-api.de/api/interpreter",
+    "https://overpass.kumi.systems/api/interpreter",
+  ];
+  for (const mirror of MIRRORS) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 12000);
+      const qr = await fetch(mirror, {
+        method: "POST",
+        headers: { ...UA, "Content-Type": "application/x-www-form-urlencoded" },
+        body: "data=" + encodeURIComponent(query),
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      if (!qr.ok) {
+        attempts.push({ mirror, status: qr.status });
+        continue;
+      }
+      const qj = await qr.json();
+      if (!qj.elements) {
+        attempts.push({ mirror, status: qr.status, noElements: true });
+        continue;
+      }
+      attempts.push({ mirror, status: qr.status, elements: qj.elements.length });
+      const out = [];
+      for (const el of qj.elements) {
+        const tags = el.tags || {};
+        const kind = labelPoi(tags);
+        if (!kind) continue;
+        const lat = el.lat ?? el.center?.lat;
+        const lng = el.lon ?? el.center?.lon;
+        if (lat == null || lng == null) continue;
+        const t = { node: "n", way: "w", relation: "r" }[el.type] || "?";
+        out.push({ id: `${t}/${el.id}`, name: tags.name || kind.label, ...kind, lat, lng });
+      }
+      if (out.length) return out;
+    } catch (e) {
+      attempts.push({ mirror, error: e.message || String(e) });
+    }
+  }
+  return [];
+}
+
+const PHOTON_QUERIES = [
+  { q: "SPBU", cat: "spbu", label: "SPBU" },
+  { q: "masjid", cat: "ibadah", label: "Masjid/Mushola" },
+  { q: "rest area", cat: "rest", label: "Rest Area" },
+  { q: "rumah makan", cat: "makan", label: "Tempat Makan" },
+  { q: "minimarket", cat: "minimarket", label: "Minimarket" },
+  { q: "ATM", cat: "atm", label: "ATM/Bank" },
+  { q: "bengkel motor", cat: "bengkel", label: "Bengkel Motor" },
+];
+
+async function photonPois(samples, attempts) {
+  // sampel tiap ~30 km, maks 8 titik
+  const picks = [];
+  let next = 0;
+  for (const s of samples) {
+    if (s.km >= next) {
+      picks.push(s);
+      next += 30;
+    }
+  }
+  if (!picks.length) picks.push(samples[0]);
+  const tasks = [];
+  for (const s of picks.slice(0, 8)) {
+    for (const qq of PHOTON_QUERIES) tasks.push({ s, qq });
+  }
+  const out = [];
+  let okCount = 0;
+  for (let i = 0; i < tasks.length; i += 8) {
+    const batch = tasks.slice(i, i + 8);
+    const results = await Promise.allSettled(
+      batch.map(async ({ s, qq }) => {
+        const url =
+          `https://photon.komoot.io/api/?q=${encodeURIComponent(qq.q)}` +
+          `&lat=${s.lat}&lon=${s.lng}&limit=12`;
+        const r = await fetch(url, { headers: UA });
+        if (!r.ok) throw new Error(`photon ${r.status}`);
+        const j = await r.json();
+        return { feats: j.features || [], qq };
+      })
+    );
+    for (const r of results) {
+      if (r.status !== "fulfilled") continue;
+      okCount++;
+      const { feats, qq } = r.value;
+      for (const f of feats) {
+        const props = f.properties || {};
+        const [lng, lat] = f.geometry.coordinates;
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+        const t = (props.osm_type || "?")[0].toLowerCase();
+        let { cat, label } = qq;
+        if (cat === "ibadah") {
+          const nm = (props.name || "").toLowerCase();
+          if (/gereja|church/.test(nm)) label = "Gereja";
+          else if (/pura/.test(nm)) label = "Pura";
+          else if (/vihara|klenteng/.test(nm)) label = "Vihara/Klenteng";
+        }
+        out.push({ id: `${t}/${props.osm_id}`, name: props.name || label, cat, label, lat, lng });
+      }
+    }
+  }
+  attempts.push({ photon: true, queriesOk: okCount, raw: out.length });
+  return out;
+}
+
 export default async function handler(req, res) {
   let stops;
   try {
@@ -140,76 +249,39 @@ export default async function handler(req, res) {
     const durationMin = route.duration / 60;
     const { samples, totalKm } = sampleRoute(route.geometry.coordinates);
 
-    // 3. POI via Overpass (coba beberapa mirror berurutan)
-    let pois = [];
-    const MIRRORS = [
-      "https://overpass-api.de/api/interpreter",
-      "https://overpass.kumi.systems/api/interpreter",
-      "https://overpass.nchc.org.tw/api/interpreter",
-    ];
-    const query = overpassQuery(samples);
+    // 3. POI di sepanjang rute: Overpass + Photon (paralel, digabung & dedupe)
     const attempts = [];
-    for (const mirror of MIRRORS) {
-      try {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 25000);
-        const qr = await fetch(mirror, {
-          method: "POST",
-          headers: { ...UA, "Content-Type": "application/x-www-form-urlencoded" },
-          body: "data=" + encodeURIComponent(query),
-          signal: ctrl.signal,
-        });
-        clearTimeout(timer);
-        if (!qr.ok) {
-          attempts.push({ mirror, status: qr.status });
-          continue;
-        }
-        const qj = await qr.json();
-        if (!qj.elements) {
-          attempts.push({ mirror, status: qr.status, noElements: true });
-          continue;
-        }
-        attempts.push({ mirror, status: qr.status, elements: qj.elements.length });
-        const seen = new Set();
-        for (const el of qj.elements || []) {
-          const id = `${el.type}/${el.id}`;
-          if (seen.has(id)) continue;
-          seen.add(id);
-          const tags = el.tags || {};
-          const kind = labelPoi(tags);
-          if (!kind) continue;
-          const plat = el.lat ?? el.center?.lat;
-          const plng = el.lon ?? el.center?.lon;
-          if (plat == null || plng == null) continue;
-          // jarak & progres terhadap rute
-          let best = { d: Infinity, km: 0 };
-          for (const s of samples) {
-            const d = haversineKm({ lat: plat, lng: plng }, s);
-            if (d < best.d) best = { d, km: s.km };
-          }
-          if (best.d > 3) continue; // hanya yang dekat rute (<=3 km)
-          pois.push({
-            id,
-            name: tags.name || kind.label,
-            ...kind,
-            lat: plat,
-            lng: plng,
-            distFromRouteKm: Math.round(best.d * 10) / 10,
-            routeKm: Math.round(best.km),
-          });
-        }
-        // urut per kategori lalu progres rute; batasi 8 per kategori
-        const byCat = {};
-        for (const p of pois.sort((a, b) => a.routeKm - b.routeKm)) {
-          (byCat[p.cat] = byCat[p.cat] || []).push(p);
-        }
-        pois = Object.values(byCat).flatMap((arr) => arr.slice(0, 8));
-        if (pois.length) break; // sukses — tidak perlu coba mirror lain
-      } catch (e) {
-        attempts.push({ mirror, error: e.message || String(e) });
-        /* coba mirror berikutnya */
-      }
+    const [overpassRes, photonRes] = await Promise.allSettled([
+      overpassPois(overpassQuery(samples), attempts),
+      photonPois(samples, attempts),
+    ]);
+    const raw = [];
+    for (const r of [overpassRes, photonRes]) {
+      if (r.status === "fulfilled") raw.push(...r.value);
     }
+    const seen = new Set();
+    let pois = [];
+    for (const p of raw) {
+      if (seen.has(p.id)) continue;
+      seen.add(p.id);
+      let best = { d: Infinity, km: 0 };
+      for (const s of samples) {
+        const d = haversineKm({ lat: p.lat, lng: p.lng }, s);
+        if (d < best.d) best = { d, km: s.km };
+      }
+      if (best.d > 3) continue; // hanya yang dekat rute (<=3 km)
+      pois.push({
+        ...p,
+        distFromRouteKm: Math.round(best.d * 10) / 10,
+        routeKm: Math.round(best.km),
+      });
+    }
+    // urut per kategori lalu progres rute; batasi 8 per kategori
+    const byCat = {};
+    for (const p of pois.sort((a, b) => a.routeKm - b.routeKm)) {
+      (byCat[p.cat] = byCat[p.cat] || []).push(p);
+    }
+    pois = Object.values(byCat).flatMap((arr) => arr.slice(0, 8));
 
     // 4. Estimasi BBM
     const fuelL = distanceKm / konsumsi;
