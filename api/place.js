@@ -7,7 +7,10 @@
 // Tanpa key: tetap mengembalikan info dasar dari OSM + Wikipedia dengan flag needsKey.
 
 const UA = { "User-Agent": "Mozilla/5.0 (compatible; TemanJalan/1.0)" };
-const FSQ = "https://api.foursquare.com/v3/places";
+// API baru Foursquare (v3 api.foursquare.com deprecated Mei 2026):
+// host places-api.foursquare.com, auth "Bearer <key>", header versi wajib.
+const FSQ = "https://places-api.foursquare.com/places";
+const FSQ_VERSION = "2025-06-17";
 
 const POSITIVE = [
   // Indonesia
@@ -64,7 +67,12 @@ function snippet(text, max = 160) {
 
 async function fsq(path, key) {
   const r = await fetch(FSQ + path, {
-    headers: { ...UA, Authorization: key, Accept: "application/json" },
+    headers: {
+      ...UA,
+      Authorization: `Bearer ${key}`,
+      "X-Places-Api-Version": FSQ_VERSION,
+      Accept: "application/json",
+    },
   });
   if (r.status === 401 || r.status === 403) {
     const e = new Error("API key Foursquare ditolak (401/403).");
@@ -159,7 +167,7 @@ export default async function handler(req, res) {
       const candidates = search.results || [];
       if (candidates.length) {
         const best = candidates[0];
-        const id = best.fsq_id;
+        const id = best.fsq_place_id || best.fsq_id;
         const [detail, tipsRaw] = await Promise.all([
           fsq(
             `/${id}?fields=fsq_id,name,geocodes,location,categories,rating,hours,website,tel,price,stats,description`,
