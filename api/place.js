@@ -80,7 +80,8 @@ async function fsq(path, key) {
     throw e;
   }
   if (!r.ok) {
-    const e = new Error(`Foursquare error ${r.status}.`);
+    const body = (await r.text()).slice(0, 200);
+    const e = new Error(`Foursquare error ${r.status}: ${body}`);
     e.code = "FSQ_ERR";
     throw e;
   }
@@ -161,7 +162,7 @@ export default async function handler(req, res) {
     try {
       const ll = hasLL ? `&ll=${la},${ln}` : "";
       const search = await fsq(
-        `/search?query=${encodeURIComponent(name || "tempat")}${ll}&limit=5&fields=fsq_id,name,geocodes,location,distance,categories`,
+        `/search?query=${encodeURIComponent(name || "tempat")}${ll}&limit=5&fields=fsq_place_id,name,geocodes,location,distance,categories`,
         key
       );
       const candidates = search.results || [];
@@ -170,7 +171,7 @@ export default async function handler(req, res) {
         const id = best.fsq_place_id || best.fsq_id;
         const [detail, tipsRaw] = await Promise.all([
           fsq(
-            `/${id}?fields=fsq_id,name,geocodes,location,categories,rating,hours,website,tel,price,stats,description`,
+            `/${id}?fields=fsq_place_id,name,geocodes,location,categories,rating,hours,website,tel,price,stats,description`,
             key
           ).catch(() => null),
           fsq(`/${id}/tips?limit=30&fields=text`, key).catch(() => []),
