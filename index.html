@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>TemanJalan — Itinerary, Deskripsi Tempat & Perencana Rute</title>
+<meta name="description" content="Teman perjalananmu: deskripsi jujur tempat (kelebihan & kekurangan), perencana rute motor dengan SPBU & masjid, dan itinerary harian. Gratis.">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="app-header">
+  <div class="wrap">
+    <h1>🧭 TemanJalan</h1>
+    <p>Itinerary • Deskripsi jujur tempat • Rute siap touring</p>
+  </div>
+</header>
+
+<nav class="tabs wrap" role="tablist">
+  <button class="tab active" data-tab="tempat" role="tab">📍 Tempat</button>
+  <button class="tab" data-tab="rute" role="tab">🛣️ Rute</button>
+  <button class="tab" data-tab="itinerary" role="tab">🗓️ Itinerary</button>
+</nav>
+
+<main class="wrap">
+
+  <!-- ============ TAB: DESKRIPSI TEMPAT ============ -->
+  <section id="tab-tempat" class="panel active">
+    <div class="card">
+      <h2>Cari tempat</h2>
+      <p class="hint">Tempel <b>link Google Maps</b> atau ketik <b>nama tempat</b> — mis. <i>Pantai Parangtritis</i>.</p>
+      <div class="row">
+        <input id="place-input" type="text" placeholder="Link Google Maps / nama tempat…" autocomplete="off">
+        <button id="place-btn" class="btn primary">Cari</button>
+      </div>
+      <div id="place-loading" class="loading hidden">🔎 Mencari info tempat…</div>
+      <div id="place-error" class="error hidden"></div>
+      <div id="place-result"></div>
+    </div>
+  </section>
+
+  <!-- ============ TAB: RUTE ============ -->
+  <section id="tab-rute" class="panel">
+    <div class="card">
+      <h2>Rencanakan rute</h2>
+      <p class="hint">Tempel <b>link rute Google Maps</b> yang dibagikan, atau isi titik manual.</p>
+      <input id="route-link" type="text" placeholder="Link rute Google Maps (opsional)…" autocomplete="off" class="mb">
+      <div class="or">— atau —</div>
+      <div id="route-stops">
+        <div class="row mb"><input class="stop-input" type="text" placeholder="Dari… (mis. Jakarta)"></div>
+        <div class="row mb"><input class="stop-input" type="text" placeholder="Ke… (mis. Bandung)"></div>
+      </div>
+      <button id="add-stop" class="btn ghost sm">＋ Tambah singgahan</button>
+      <div class="grid2 mt">
+        <label>Konsumsi motor (km/L)<input id="fuel-konsumsi" type="number" value="45" min="5" max="200"></label>
+        <label>Harga BBM (Rp/L)<input id="fuel-harga" type="number" value="10000" min="1000" step="500"></label>
+      </div>
+      <button id="route-btn" class="btn primary block mt">🛣️ Hitung Rute</button>
+      <div id="route-loading" class="loading hidden">🛰️ Menghitung rute & mencari SPBU, masjid, rest area…</div>
+      <div id="route-error" class="error hidden"></div>
+      <div id="route-result"></div>
+    </div>
+  </section>
+
+  <!-- ============ TAB: ITINERARY ============ -->
+  <section id="tab-itinerary" class="panel">
+    <div class="card">
+      <div class="row space">
+        <h2>Itinerariku</h2>
+        <button id="add-day" class="btn ghost sm">＋ Hari</button>
+      </div>
+      <p class="hint">Tersimpan otomatis di HP ini. Tambahkan tempat/rute dari tab lain, atau tulis manual.</p>
+      <div id="itinerary-days"></div>
+      <div class="row mt">
+        <button id="export-json" class="btn ghost sm">⬇️ Ekspor JSON</button>
+        <button id="share-link" class="btn ghost sm">🔗 Salin link berbagi</button>
+        <button id="import-btn" class="btn ghost sm">📥 Impor</button>
+        <input id="import-file" type="file" accept=".json,application/json" class="hidden">
+      </div>
+      <div id="share-out" class="hidden mt"></div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="wrap foot">
+  <p>Data tempat: Foursquare • Rute: OSRM • Peta & POI: OpenStreetMap • 100% gratis, tanpa kartu kredit.</p>
+</footer>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
