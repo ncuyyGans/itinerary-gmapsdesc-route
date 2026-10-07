@@ -87,7 +87,7 @@ function renderPlace(p) {
       <div class="pros"><h4>✅ Kelebihan</h4><ul>${pros || "<li>—</li>"}</ul></div>
       <div class="cons"><h4>❌ Kekurangan</h4><ul>${cons || "<li>—</li>"}</ul></div>
     </div>
-    <div class="meta">Berdasarkan ${esc(p.tipsCount || 0)} ulasan pengguna${p.source?.length ? ` · sumber: ${esc(p.source.join(", "))}` : ""}.</div>` : ""}
+    <div class="meta">Sumber pro/kontra: ${esc(p.pcSource || "ulasan pengguna")}${p.pcUrl ? ` · <a href="${esc(p.pcUrl)}" target="_blank" rel="noopener">baca panduan ↗</a>` : ""}${p.source?.length ? ` · data: ${esc(p.source.join(", "))}` : ""}.</div>` : ""}
     ${tips ? `<ul class="tips">${tips}</ul>` : ""}
     <div class="row mt">
       <button class="btn ghost sm" id="place-to-it">＋ Itinerary</button>

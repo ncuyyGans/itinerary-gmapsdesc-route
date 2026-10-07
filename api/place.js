@@ -23,6 +23,7 @@ const POSITIVE = [
   "good", "great", "excellent", "awesome", "amazing", "nice", "clean", "comfortable",
   "friendly", "cheap", "affordable", "beautiful", "spacious", "cozy", "love", "loved",
   "perfect", "wonderful", "fantastic", "best", "quiet", "tasty", "delicious",
+  "stunning", "breathtaking", "must-see", "worth visiting", "impressive",
 ];
 
 const NEGATIVE = [
@@ -32,37 +33,122 @@ const NEGATIVE = [
   "panas", "sumpek", "pengap", "rusak", "tutup", "susah", "sulit", "kapok",
   "parkir susah", "parkir sulit", "tidak recommended", "nggak recommended",
   "mending", "skip", "zonk", "overpriced", "tidak ramah", "judes", "cuek",
-  "kecil banget", "sempit banget", "pelayanan buruk",
+  "kecil banget", "sempit banget", "pelayanan buruk", "berbahaya", "awas", "penipuan",
   // English
   "bad", "terrible", "awful", "dirty", "expensive", "overpriced", "slow", "rude",
-  "crowded", "noisy", "loud", "small", "cramped", "disappointing", "disappointed",
+  "crowded", "overcrowded", "noisy", "loud", "cramped", "disappointing", "disappointed",
   "avoid", "worst", "poor", "horrible", "smelly", "broken", "closed",
+  "dangerous", "warning", "beware", "prohibited", "forbidden", "scam", "pickpocket",
+];
+
+const NEGATIONS = [
+  "not", "no", "never", "n't", "cannot", "can't", "won't", "don't", "doesn't",
+  "didn't", "isn't", "aren't", "wasn't", "weren't", "hasn't", "haven't",
+  "couldn't", "shouldn't", "tidak", "tak", "bukan", "jangan", "kurang",
+  "belum", "tanpa",
 ];
 
 function scoreTip(text) {
-  const t = ` ${text.toLowerCase()} `;
+  const words = text
+    .toLowerCase()
+    .split(/[^a-z'’]+/)
+    .filter(Boolean);
   let pos = 0;
   let neg = 0;
   const posHits = [];
   const negHits = [];
-  for (const kw of POSITIVE) {
-    if (t.includes(kw)) {
-      pos++;
-      if (posHits.length < 3) posHits.push(kw);
+  const scan = (list, isPositive) => {
+    for (const kw of list) {
+      const kwWords = kw.toLowerCase().split(" ");
+      for (let i = 0; i <= words.length - kwWords.length; i++) {
+        let ok = true;
+        for (let k = 0; k < kwWords.length; k++) {
+          if (words[i + k] !== kwWords[k]) {
+            ok = false;
+            break;
+          }
+        }
+        if (!ok) continue;
+        // negasi dalam 3 kata sebelumnya membalik polaritas ("not good", "tidak enak")
+        let negated = false;
+        for (let j = Math.max(0, i - 3); j < i; j++) {
+          if (NEGATIONS.includes(words[j])) {
+            negated = true;
+            break;
+          }
+        }
+        const label = (negated ? "¬" : "") + kw;
+        if (isPositive === !negated) {
+          pos++;
+          if (posHits.length < 3) posHits.push(label);
+        } else {
+          neg++;
+          if (negHits.length < 3) negHits.push(label);
+        }
+        break; // tiap keyword dihitung sekali per teks
+      }
     }
-  }
-  for (const kw of NEGATIVE) {
-    if (t.includes(kw)) {
-      neg++;
-      if (negHits.length < 3) negHits.push(kw);
-    }
-  }
+  };
+  scan(POSITIVE, true);
+  scan(NEGATIVE, false);
   return { pos, neg, posHits, negHits };
 }
 
 function snippet(text, max = 160) {
   const t = text.replace(/\s+/g, " ").trim();
   return t.length > max ? t.slice(0, max - 1).trimEnd() + "…" : t;
+}
+
+// Wikivoyage: panduan traveler gratis (tanpa key/kartu), bahasanya jujur soal plus-minus.
+async function wikivoyageGuide(q) {
+  try {
+    const s = await fetch(
+      `https://en.wikivoyage.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(
+        q
+      )}&format=json&srlimit=3&origin=*`,
+      { headers: UA }
+    );
+    const hits = (await s.json())?.query?.search || [];
+    if (!hits.length) return null;
+    const title = hits[0].title;
+    const e = await fetch(
+      `https://en.wikivoyage.org/w/api.php?action=query&prop=extracts&explaintext=1&titles=${encodeURIComponent(
+        title
+      )}&format=json&origin=*`,
+      { headers: UA }
+    );
+    const pages = (await e.json())?.query?.pages || {};
+    const page = Object.values(pages)[0];
+    if (!page?.extract || page.extract.length < 200) return null;
+    return {
+      title,
+      text: page.extract.slice(0, 4000),
+      url: `https://en.wikivoyage.org/wiki/${encodeURIComponent(title.replace(/ /g, "_"))}`,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Pecah teks jadi kalimat, pilah pro/kontra pakai skor kata kunci.
+function prosConsFromText(text, maxEach = 3) {
+  const sentences = text
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 40 && s.length < 400);
+  const scored = sentences.map((t) => ({ text: t, ...scoreTip(t) }));
+  const pros = scored
+    .filter((s) => s.pos > s.neg)
+    .sort((a, b) => b.pos - a.pos)
+    .slice(0, maxEach)
+    .map((s) => ({ text: snippet(s.text), keywords: s.posHits }));
+  const cons = scored
+    .filter((s) => s.neg > s.pos)
+    .sort((a, b) => b.neg - a.neg)
+    .slice(0, maxEach)
+    .map((s) => ({ text: snippet(s.text), keywords: s.negHits }));
+  return { pros, cons };
 }
 
 async function fsq(path, key) {
@@ -258,6 +344,24 @@ export default async function handler(req, res) {
       result.summaryUrl = wiki.url;
       result.source.push("Wikipedia");
     }
+  }
+
+  // ---- Wikivoyage: pro/kontra gratis dari panduan traveler ----
+  if ((!result.pros || !result.pros.length) && (!result.cons || !result.cons.length) && result.name) {
+    const guide = await wikivoyageGuide(result.name);
+    if (guide) {
+      const pc = prosConsFromText(guide.text);
+      if (pc.pros.length || pc.cons.length) {
+        result.pros = pc.pros;
+        result.cons = pc.cons;
+        result.pcSource = `panduan traveler (Wikivoyage: ${guide.title})`;
+        result.pcUrl = guide.url;
+        if (!result.source.includes("Wikivoyage")) result.source.push("Wikivoyage");
+      }
+    }
+  }
+  if (!result.pcSource && result.tipsCount) {
+    result.pcSource = `${result.tipsCount} ulasan pengguna (Foursquare)`;
   }
 
   result.mapsUrl = mapsLink(result.name || name, result.lat, result.lng);
