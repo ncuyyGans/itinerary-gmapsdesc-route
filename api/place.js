@@ -158,6 +158,7 @@ export default async function handler(req, res) {
   };
 
   // ---- Foursquare: cari -> detail -> tips ----
+  let dbg = null;
   if (key) {
     try {
       const ll = hasLL ? `&ll=${la},${ln}` : "";
@@ -173,9 +174,20 @@ export default async function handler(req, res) {
           fsq(
             `/${id}`,
             key
-          ).catch(() => null),
-          fsq(`/${id}/tips?limit=30&fields=text`, key).catch(() => []),
+          ).catch((e) => ({ _err: String(e.message || e) })),
+          fsq(`/${id}/tips?limit=30`, key).catch((e) => ({ _err: String(e.message || e) })),
         ]);
+        if (req.query.debug === "1") {
+          dbg = {
+            detailKeys: detail && !detail._err ? Object.keys(detail).slice(0, 40) : detail,
+            ratingRaw: detail?.rating,
+            statsRaw: detail?.stats,
+            hoursRaw: typeof detail?.hours,
+            tipsErr: tipsRaw?._err || null,
+            tipsLen: Array.isArray(tipsRaw) ? tipsRaw.length : (tipsRaw?.results || []).length,
+            tipsSample: (Array.isArray(tipsRaw) ? tipsRaw : tipsRaw?.results || []).slice(0, 1),
+          };
+        }
         const d = detail || best;
         const geo = { latitude: d.latitude ?? d.geocodes?.main?.latitude, longitude: d.longitude ?? d.geocodes?.main?.longitude };
         result.name = d.name || result.name;
@@ -247,6 +259,7 @@ export default async function handler(req, res) {
   }
 
   result.mapsUrl = mapsLink(result.name || name, result.lat, result.lng);
+  if (dbg) result._debug = dbg;
 
   if (!result.source.includes("Foursquare") && !result.address && !result.summary) {
     return res.status(404).json({
