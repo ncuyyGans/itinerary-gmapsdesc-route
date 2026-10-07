@@ -172,7 +172,9 @@ export default async function handler(req, res) {
         const id = best.fsq_place_id || best.fsq_id;
         const [detail, tipsRaw] = await Promise.all([
           fsq(
-            `/${id}`,
+            `/${id}?fields=` +
+              `fsq_place_id,name,latitude,longitude,location,extended_location,categories,` +
+              `rating,stats,hours,price,tel,website,social_media,description`,
             key
           ).catch((e) => ({ _err: String(e.message || e) })),
           fsq(`/${id}/tips?limit=30`, key).catch((e) => ({ _err: String(e.message || e) })),
