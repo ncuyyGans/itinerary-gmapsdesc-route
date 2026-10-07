@@ -234,6 +234,26 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "Titik asal/tujuan tidak bisa dikenali." });
     }
 
+    // Label yang enak dibaca untuk titik koordinat mentah (best-effort)
+    for (const p of pts) {
+      if (!p.name || /^-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?$/.test(p.name)) {
+        try {
+          const rr = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${p.lat}&lon=${p.lng}&zoom=14&accept-language=id`,
+            { headers: UA }
+          );
+          const jj = await rr.json();
+          const a = jj.address || {};
+          p.name =
+            a.road || a.suburb || a.village || a.town || a.city || a.county ||
+            (jj.display_name ? jj.display_name.split(",").slice(0, 2).join(",") : null) ||
+            `${p.lat},${p.lng}`;
+        } catch {
+          p.name = `${p.lat},${p.lng}`;
+        }
+      }
+    }
+
     // 2. Routing OSRM
     const coordStr = pts.map((p) => `${p.lng},${p.lat}`).join(";");
     const osrmUrl =

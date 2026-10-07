@@ -72,6 +72,33 @@ function parseDir(u) {
     push(destination);
     return wps.length ? wps : null;
   }
+  // Gaya 1b: /maps/dir/data=!4m... (format share dari aplikasi Google Maps):
+  // waypoint dikodekan sebagai !1s<placeid>!8m2!3dLAT!4dLNG per titik.
+  let dataStr = u.searchParams.get("data");
+  if (!dataStr) {
+    const dm = u.pathname.match(/\/maps\/dir\/(data=[^?#]*)/);
+    if (dm) {
+      try {
+        dataStr = decodeURIComponent(dm[1]);
+      } catch {
+        dataStr = dm[1];
+      }
+    }
+  }
+  if (dataStr) {
+    const wps = [];
+    const re = /!3d(-?\d+(?:\.\d+)?)!4d(-?\d+(?:\.\d+)?)/g;
+    let m;
+    while ((m = re.exec(dataStr))) {
+      const lat = parseFloat(m[1]);
+      const lng = parseFloat(m[2]);
+      if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+        wps.push({ name: null, lat, lng });
+      }
+    }
+    // !1m1!4e1 = "lokasi saya" (tanpa koordinat) -> dilewati; butuh >=2 titik berkoordinat
+    if (wps.length >= 2) return wps;
+  }
   // Gaya 2: /maps/dir/Asal/Tujuan[/...]
   const m = u.pathname.match(/\/maps\/dir\/([^?#]*)/);
   if (m) {
@@ -84,7 +111,7 @@ function parseDir(u) {
           return s;
         }
       })
-      .filter((s) => s && !s.startsWith("@"))
+      .filter((s) => s && !s.startsWith("@") && !s.startsWith("data="))
       .map(toWaypoint)
       .filter(Boolean);
     return wps.length ? wps : null;
