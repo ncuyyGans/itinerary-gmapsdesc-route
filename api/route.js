@@ -148,6 +148,7 @@ export default async function handler(req, res) {
       "https://overpass.nchc.org.tw/api/interpreter",
     ];
     const query = overpassQuery(samples);
+    const attempts = [];
     for (const mirror of MIRRORS) {
       try {
         const ctrl = new AbortController();
@@ -159,9 +160,16 @@ export default async function handler(req, res) {
           signal: ctrl.signal,
         });
         clearTimeout(timer);
-        if (!qr.ok) continue;
+        if (!qr.ok) {
+          attempts.push({ mirror, status: qr.status });
+          continue;
+        }
         const qj = await qr.json();
-        if (!qj.elements) continue;
+        if (!qj.elements) {
+          attempts.push({ mirror, status: qr.status, noElements: true });
+          continue;
+        }
+        attempts.push({ mirror, status: qr.status, elements: qj.elements.length });
         const seen = new Set();
         for (const el of qj.elements || []) {
           const id = `${el.type}/${el.id}`;
@@ -197,7 +205,8 @@ export default async function handler(req, res) {
         }
         pois = Object.values(byCat).flatMap((arr) => arr.slice(0, 8));
         if (pois.length) break; // sukses — tidak perlu coba mirror lain
-      } catch {
+      } catch (e) {
+        attempts.push({ mirror, error: e.message || String(e) });
         /* coba mirror berikutnya */
       }
     }
@@ -238,6 +247,7 @@ export default async function handler(req, res) {
         "Rute dihitung untuk kendaraan roda 4 — motor dilarang masuk jalan tol. Periksa rambu di jalan.",
         "Waktu tempuh tanpa memperhitungkan macet & kondisi jalan.",
       ],
+      ...(req.query.debug === "1" ? { poiDebug: attempts } : {}),
     });
   } catch (e) {
     return res.status(502).json({ error: e.message || "Gagal menghitung rute." });
